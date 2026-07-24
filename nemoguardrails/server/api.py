@@ -197,6 +197,7 @@ app = GuardrailsApp(
 
 ENABLE_CORS = os.getenv("NEMO_GUARDRAILS_SERVER_ENABLE_CORS", "false").lower() == "true"
 ALLOWED_ORIGINS = os.getenv("NEMO_GUARDRAILS_SERVER_ALLOWED_ORIGINS", "*")
+ROOT_PATH = os.getenv("NEMO_GUARDRAILS_SERVER_ROOT_PATH", "")
 
 if ENABLE_CORS:
     # Split origins by comma
@@ -227,6 +228,8 @@ app.stop_signal = False
 app.single_config_mode = False
 app.single_config_id = None
 
+# Root path for the server
+app.root_path = ROOT_PATH
 
 @app.get(
     "/v1/rails/configs",
