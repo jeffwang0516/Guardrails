@@ -40,6 +40,7 @@ class SnowflakeEmbed:
             trust_remote_code=True,
             add_pooling_layer=False,
             use_safetensors=True,
+            safe_serialization=True
         )
         self.model.to(self.device)
         self.model.eval()
