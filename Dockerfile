@@ -36,6 +36,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY . /nemoguardrails
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --all-extras --no-dev --locked
+# Dependencies for hf-classifier local backend
+RUN --mount=type=cache,target=/root/.cache/uv \
+uv pip install \
+    --python /nemoguardrails/.venv/bin/python \
+    transformers \
+    torch
+
 ENV PATH="/nemoguardrails/.venv/bin:$PATH"
 
 
