@@ -302,6 +302,10 @@ class OpenAIChatCompletionRequest(BaseModel):
         default=None,
         description="Whether to allow parallel tool calls during tool use.",
     )
+    reasoning_effort: Optional[str] = Field(
+        default=None,
+        description="Reasoning effort parameter.",
+    )
 
 
 class GuardrailsDataInput(BaseModel):

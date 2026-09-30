@@ -50,6 +50,7 @@ from nemoguardrails.http.errors import HTTPClientError
 from nemoguardrails.llm.call import _prepend_think_tags
 from nemoguardrails.llm.clients._errors import build_error_payload, normalize_error_status
 from nemoguardrails.llm.models.initializer import ModelInitializationError
+from nemoguardrails.llm.openai_reasoning import is_openai_reasoning_model
 from nemoguardrails.rails.llm.config import Model
 from nemoguardrails.rails.llm.options import GenerationResponse, RailStatus
 from nemoguardrails.server.datastore.datastore import DataStore
@@ -739,6 +740,8 @@ async def chat_completion(body: GuardrailsChatCompletionRequest, request: Reques
         generation_options.llm_params["tool_choice"] = body.tool_choice
     if body.parallel_tool_calls is not None:
         generation_options.llm_params["parallel_tool_calls"] = body.parallel_tool_calls
+    if body.reasoning_effort is not None and is_openai_reasoning_model(body.model):
+        generation_options.llm_params["reasoning_effort"] = body.reasoning_effort
 
     if body.stream:
         # Use stream_async for streaming with output rails support
