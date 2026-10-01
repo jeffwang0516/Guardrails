@@ -18,6 +18,7 @@ from ast import literal_eval
 from datetime import datetime
 
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.text import Text
 
 from nemoguardrails.logging.simplify_formatter import SimplifyFormatter
@@ -87,12 +88,12 @@ class VerboseHandler(logging.StreamHandler):
                     console.print("")
 
             elif title.startswith("Colang Log ("):
-                title = f"[green]{title[11:]}[/]"
+                title = f"[green]{escape(title[11:])}[/]"
 
             elif title == "Event":
                 # For events, we also color differently the type of event.
                 event_name, body = body.split(" ", 1)
-                title = f"[blue]{title}[/] [bold]{event_name}[/]"
+                title = f"[blue]{title}[/] [bold]{escape(event_name)}[/]"
 
             else:
                 if title == "Processing event" and body.startswith("{"):
@@ -113,26 +114,26 @@ class VerboseHandler(logging.StreamHandler):
                             # We're adding a new line before action events, to
                             # make it more readable.
                             if event_type.startswith("Start") and event_type.endswith("Action"):
-                                title = f"[magenta][bold]Start[/]{event_type[5:]}[/]"
+                                title = f"[magenta][bold]Start[/]{escape(event_type[5:])}[/]"
                             elif event_type.startswith("Stop") and event_type.endswith("Action"):
-                                title = f"[magenta][bold]Stop[/]{event_type[4:]}[/]"
+                                title = f"[magenta][bold]Stop[/]{escape(event_type[4:])}[/]"
                             elif event_type.endswith("ActionUpdated"):
-                                title = f"[magenta]{event_type[:-7]}[bold]Updated[/][/]"
+                                title = f"[magenta]{escape(event_type[:-7])}[bold]Updated[/][/]"
                             elif event_type.endswith("ActionFinished"):
                                 if event_type == "UtteranceUserActionFinished":
-                                    title = f"[magenta]{event_type[:-8]}[bold]Finished[/][/]"
+                                    title = f"[magenta]{escape(event_type[:-8])}[bold]Finished[/][/]"
                                 else:
-                                    title = f"[magenta]{event_type[:-8]}[bold]Finished[/][/]"
+                                    title = f"[magenta]{escape(event_type[:-8])}[bold]Finished[/][/]"
                             elif event_type.endswith("ActionFailed"):
-                                title = f"[magenta]{event_type[:-6]}[bold]Failed[/][/]"
+                                title = f"[magenta]{escape(event_type[:-6])}[bold]Failed[/][/]"
                             elif event_type == "BotThinking":
                                 title = f"[yellow bold]{event_type}[/]"
                             else:
-                                title = event_type
+                                title = escape(event_type)
                         else:
                             skip_print = True
                     except Exception:
-                        title = f"[red bold]{title}[/]"
+                        title = f"[red bold]{escape(title)}[/]"
                 elif title == "Running action":
                     skip_print = True
                 elif title == "Matching head":
@@ -147,10 +148,10 @@ class VerboseHandler(logging.StreamHandler):
                     #     skip_print = True
                 else:
                     if title == "---":
-                        title = f"[#555555]{body}[/]"
+                        title = f"[#555555]{escape(body)}[/]"
                         body = ""
                     else:
-                        title = f"[#707070]{title}[/] [#555555]{body}[/]"
+                        title = f"[#707070]{escape(title)}[/] [#555555]{escape(body)}[/]"
                         body = ""
 
             if not skip_print:
@@ -159,7 +160,7 @@ class VerboseHandler(logging.StreamHandler):
 
                 if body:
                     msg += f"[dim]{title}[/] | "
-                    msg += f"[dim]{body}[/]"
+                    msg += f"[dim]{escape(body)}[/]"
                 else:
                     msg += f"[dim]{title}[/]"
 

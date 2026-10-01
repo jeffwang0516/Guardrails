@@ -14,8 +14,11 @@
 # limitations under the License.
 
 import asyncio
+import logging
+from io import StringIO
 
 import pytest
+from rich.console import Console
 
 from nemoguardrails.context import explain_info_var, llm_call_info_var, llm_stats_var
 from nemoguardrails.llm.call import _log_prompt, _store_request_id, _update_token_stats
@@ -23,7 +26,28 @@ from nemoguardrails.logging.explain import ExplainInfo, LLMCallInfo
 from nemoguardrails.logging.llm_tracker import track_llm_call
 from nemoguardrails.logging.processing_log import compute_generation_log, processing_log_var
 from nemoguardrails.logging.stats import LLMStats
+from nemoguardrails.logging.verbose import VerboseHandler
 from nemoguardrails.types import ChatMessage, LLMResponse, UsageInfo
+
+
+def test_verbose_handler_escapes_rich_markup_in_event_content(monkeypatch):
+    output = StringIO()
+    test_console = Console(file=output, color_system=None, width=200)
+    monkeypatch.setattr("nemoguardrails.logging.verbose.console", test_console)
+    handler = VerboseHandler()
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="Event :: BotMessage {'text': '[/Task]'}",
+        args=(),
+        exc_info=None,
+    )
+
+    handler.emit(record)
+
+    assert "[/Task]" in output.getvalue()
 
 
 def test_compute_generation_log_includes_tool_rails():
