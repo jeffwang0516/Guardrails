@@ -21,7 +21,8 @@ from typing import Union
 
 logger = logging.getLogger(__name__)
 
-MODEL_FILENAME = "snowflake.onnx"
+# MODEL_FILENAME = "snowflake.onnx"
+MODEL_FILENAME = "snowflake.pkl" # use pkl for now when onnx perf mismatch is under investigation https://github.com/NVIDIA-NeMo/Guardrails/issues/2364
 MODEL_REPO_ID = "nvidia/NemoGuard-JailbreakDetect"
 
 

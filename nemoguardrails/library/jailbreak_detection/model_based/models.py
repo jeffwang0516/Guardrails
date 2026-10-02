@@ -52,21 +52,38 @@ class SnowflakeEmbed:
         return embeddings.detach().cpu().squeeze(0).numpy()
 
 
+# class JailbreakClassifier:
+#     def __init__(self, random_forest_path: str):
+#         from onnxruntime import InferenceSession
+
+#         self.embed = SnowflakeEmbed()
+#         # See https://onnx.ai/sklearn-onnx/auto_examples/plot_convert_decision_function.html
+#         self.classifier = InferenceSession(random_forest_path, providers=["CPUExecutionProvider"])
+
+#     def __call__(self, text: str) -> Tuple[bool, float]:
+#         e = self.embed(text)
+#         x = np.asarray([e], dtype=np.float32)
+#         res = self.classifier.run(None, {"X": x})
+#         classification = res[0].item()
+#         # The second is a list of dicts of probabilities -- the slice res[1][:2] should have only one element.
+#         # We access the dict entry for the class.
+#         prob = res[1][0][classification]
+#         score = -prob if classification == 0 else prob
+#         return bool(classification), float(score)
+
+# use pkl for now when onnx perf mismatch is under investigation https://github.com/NVIDIA-NeMo/Guardrails/issues/2364
 class JailbreakClassifier:
     def __init__(self, random_forest_path: str):
-        from onnxruntime import InferenceSession
+        import pickle
 
         self.embed = SnowflakeEmbed()
-        # See https://onnx.ai/sklearn-onnx/auto_examples/plot_convert_decision_function.html
-        self.classifier = InferenceSession(random_forest_path, providers=["CPUExecutionProvider"])
+        with open(random_forest_path, "rb") as fd:
+            self.classifier = pickle.load(fd)
 
     def __call__(self, text: str) -> Tuple[bool, float]:
         e = self.embed(text)
-        x = np.asarray([e], dtype=np.float32)
-        res = self.classifier.run(None, {"X": x})
-        classification = res[0].item()
-        # The second is a list of dicts of probabilities -- the slice res[1][:2] should have only one element.
-        # We access the dict entry for the class.
-        prob = res[1][0][classification]
+        probs = self.classifier.predict_proba([e])
+        classification = np.argmax(probs)
+        prob = np.max(probs)
         score = -prob if classification == 0 else prob
         return bool(classification), float(score)
