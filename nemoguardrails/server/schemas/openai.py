@@ -49,6 +49,10 @@ class GuardrailsChatCompletion(ChatCompletion):
     """OpenAI API response body with NeMo-Guardrails extensions."""
 
     guardrails: Optional[GuardrailsDataOutput] = Field(default=None, description="Guardrails specific output data.")
+    prompt_filter_results: Optional[List[dict]] = Field(
+        default=None,
+        description="Prompt content-filter annotations returned by the LLM provider.",
+    )
 
 
 class _OpenAIChatMessageBase(BaseModel):

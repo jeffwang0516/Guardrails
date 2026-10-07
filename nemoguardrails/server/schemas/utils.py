@@ -371,6 +371,7 @@ def generation_response_to_chat_completion(
             output_data=response.output_data,
             log=log_dict,
         ),
+        prompt_filter_results=(response.llm_metadata or {}).get("prompt_filter_results")
     )
 
 
