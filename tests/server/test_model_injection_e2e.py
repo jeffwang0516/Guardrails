@@ -43,6 +43,7 @@ NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 RAIL_MODEL_URL = "http://rail.invalid/v1/chat/completions"
 AZURE_MODEL_URL = "https://azure-prod.openai.azure.com/openai/v1/chat/completions"
+AZURE_MODELS_URL = "https://azure-prod.openai.azure.com/openai/v1/models"
 
 ENGINE_ONLY_CONFIG = """
 models:
@@ -207,7 +208,7 @@ models:
         json={
             "model": REQUEST_MODEL,
             "messages": [{"role": "user", "content": "hi"}],
-            "guardrails": {"config_id": "test"},
+            "guardrails": {"config_id": "azure"},
         },
     )
 
@@ -218,9 +219,37 @@ models:
     assert "azure_openai_resource_name" not in upstream_request.read().decode()
 
 
-def test_chat_completion_rejects_malformed_azure_resource_header(
-    httpx_mock: HTTPXMock, serve_config, client
-):
+def test_list_models_uses_azure_resource_header(httpx_mock: HTTPXMock, serve_config, client, monkeypatch):
+    serve_config(
+        """
+models:
+  - type: main
+    engine: openai
+    model: azure-model
+    parameters:
+      base_url: https://<PROJECT>.openai.azure.com/openai/v1
+"""
+    )
+    monkeypatch.setattr(api.app, "default_config_id", "azure")
+    httpx_mock.add_response(
+        url=AZURE_MODELS_URL,
+        method="GET",
+        json={"data": [{"id": "gpt-6-luna", "created": 1700000000, "owned_by": "azure"}]},
+    )
+
+    response = client.get(
+        "/v1/models",
+        headers={"X-Azure-Project": "azure-prod", "Authorization": "Bearer request-key"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"][0]["id"] == "gpt-6-luna"
+    upstream_request = httpx_mock.get_request()
+    assert str(upstream_request.url) == AZURE_MODELS_URL
+    assert upstream_request.headers["Authorization"] == "Bearer request-key"
+
+
+def test_chat_completion_rejects_malformed_azure_resource_header(httpx_mock: HTTPXMock, serve_config, client):
     """Reject malformed Azure resource names before making a provider request."""
     serve_config(
         """

@@ -317,6 +317,13 @@ async def list_models(request: Request):
     engine = os.environ.get("MAIN_MODEL_ENGINE") or (configured_model.engine if configured_model else "openai")
     config_base_url = configured_model.parameters.get("base_url") if configured_model else None
     base_url = os.environ.get("MAIN_MODEL_BASE_URL") or config_base_url
+    upstream_override = get_upstream_override(request)
+    azure_resource_name = upstream_override.get("azure_openai_resource_name") if upstream_override else None
+    if azure_resource_name:
+        try:
+            base_url = _azure_base_url_for_resource(base_url, engine, azure_resource_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Forward auth headers from the incoming request.
     request_headers: dict[str, str] = {}
@@ -392,6 +399,28 @@ def _configured_main_model(config: RailsConfig) -> Optional[Model]:
         if model.type == "main":
             return model
     return None
+
+
+def _azure_base_url_for_resource(base_url: Optional[str], engine: str, resource_name: str) -> str:
+    if engine != "openai":
+        raise ValueError("Azure resource override requires engine=openai")
+
+    parsed_base_url = urlsplit(base_url or "")
+    if (
+        parsed_base_url.scheme.casefold() != "https"
+        or parsed_base_url.netloc.casefold() != "<project>.openai.azure.com"
+    ):
+        raise ValueError("Azure resource override requires a templated Azure base_url")
+
+    return urlunsplit(
+        (
+            parsed_base_url.scheme,
+            f"{resource_name}.openai.azure.com",
+            parsed_base_url.path,
+            parsed_base_url.query,
+            parsed_base_url.fragment,
+        )
+    )
 
 
 def _load_default_main_model() -> Optional[Model]:
@@ -528,24 +557,8 @@ async def _get_rails(
         request_overrides = dict(upstream_override)
         azure_resource_name = request_overrides.pop("azure_openai_resource_name", None)
         if "azure" in config_ids and azure_resource_name:
-            if configured.engine != "openai":
-                raise ValueError("Azure resource override requires engine=openai")
-
-            parsed_base_url = urlsplit(params.get("base_url") or "")
-            if (
-                parsed_base_url.scheme.casefold() != "https"
-                or parsed_base_url.netloc.casefold() != "<project>.openai.azure.com"
-            ):
-                raise ValueError("Azure resource override requires a templated Azure base_url")
-
-            params["base_url"] = urlunsplit(
-                (
-                    parsed_base_url.scheme,
-                    f"{azure_resource_name}.openai.azure.com",
-                    parsed_base_url.path,
-                    parsed_base_url.query,
-                    parsed_base_url.fragment,
-                )
+            params["base_url"] = _azure_base_url_for_resource(
+                params.get("base_url"), configured.engine, azure_resource_name
             )
 
         params.update(request_overrides)
@@ -702,10 +715,7 @@ def get_upstream_override(request: Request) -> Optional[dict[str, str]]:
 
     # check if Project name must be at least three characters long, and may only contain lowercase letters, numbers, and hyphens. cannot exceed 33 characters
     if azure_openai_resource_name and not re.match(r"^[a-z0-9-]{3,33}$", azure_openai_resource_name):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid Azure project name"
-        )
+        raise HTTPException(status_code=400, detail="Invalid Azure project name")
 
     authorization = request.headers.get("authorization")
 
