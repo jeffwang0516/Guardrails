@@ -527,7 +527,7 @@ async def _get_rails(
         params = dict(configured.parameters)
         request_overrides = dict(upstream_override)
         azure_resource_name = request_overrides.pop("azure_openai_resource_name", None)
-        if azure_resource_name:
+        if "azure" in config_ids and azure_resource_name:
             if configured.engine != "openai":
                 raise ValueError("Azure resource override requires engine=openai")
 
