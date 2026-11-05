@@ -24,6 +24,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Callable, List, Literal, Optional, Union
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -467,7 +468,11 @@ def _inject_model(config: RailsConfig, model_name: str) -> RailsConfig:
     return _update_models_in_config(config, main_model)
 
 
-async def _get_rails(config_ids: List[str], model_name: Optional[str] = None) -> LLMRails:
+async def _get_rails(
+    config_ids: List[str],
+    model_name: Optional[str] = None,
+    upstream_override: Optional[dict[str, str]] = None,
+) -> LLMRails:
     """Returns the rails instance for the given config id and model.
 
     Args:
@@ -476,7 +481,7 @@ async def _get_rails(config_ids: List[str], model_name: Optional[str] = None) ->
     """
     configs_cache_key = _generate_cache_key(config_ids, model_name)
 
-    if configs_cache_key in llm_rails_instances:
+    if not upstream_override and configs_cache_key in llm_rails_instances:
         return llm_rails_instances[configs_cache_key]
 
     # In single-config mode, we only load the main config directory
@@ -513,12 +518,54 @@ async def _get_rails(config_ids: List[str], model_name: Optional[str] = None) ->
 
     if model_name:
         full_llm_rails_config = _inject_model(full_llm_rails_config, model_name)
+    if upstream_override:
+        configured = _configured_main_model(full_llm_rails_config)
 
+        if configured is None:
+            raise ValueError("Main model is required")
+
+        params = dict(configured.parameters)
+        request_overrides = dict(upstream_override)
+        azure_resource_name = request_overrides.pop("azure_openai_resource_name", None)
+        if azure_resource_name:
+            if configured.engine != "openai":
+                raise ValueError("Azure resource override requires engine=openai")
+
+            parsed_base_url = urlsplit(params.get("base_url") or "")
+            if (
+                parsed_base_url.scheme.casefold() != "https"
+                or parsed_base_url.netloc.casefold() != "<project>.openai.azure.com"
+            ):
+                raise ValueError("Azure resource override requires a templated Azure base_url")
+
+            params["base_url"] = urlunsplit(
+                (
+                    parsed_base_url.scheme,
+                    f"{azure_resource_name}.openai.azure.com",
+                    parsed_base_url.path,
+                    parsed_base_url.query,
+                    parsed_base_url.fragment,
+                )
+            )
+
+        params.update(request_overrides)
+        model_fields = configured.model_dump()
+        if "api_key" in request_overrides:
+            model_fields["api_key_env_var"] = None
+        model_fields["parameters"] = params
+        main_model = _validated_main_model(model_fields)
+
+        full_llm_rails_config = _update_models_in_config(
+            full_llm_rails_config,
+            main_model,
+        )
     llm_rails = LLMRails(config=full_llm_rails_config, verbose=True)
-    llm_rails_instances[configs_cache_key] = llm_rails
 
-    # If we have a cache for the events, we restore it
-    llm_rails.events_history_cache = llm_rails_events_history_cache.get(configs_cache_key, {})
+    if upstream_override is None:
+        llm_rails_instances[configs_cache_key] = llm_rails
+
+        # If we have a cache for the events, we restore it
+        llm_rails.events_history_cache = llm_rails_events_history_cache.get(configs_cache_key, {})
 
     return llm_rails
 
@@ -650,6 +697,27 @@ def _inline_reasoning_as_think_tags(res: GenerationResponse) -> GenerationRespon
     return res
 
 
+def get_upstream_override(request: Request) -> Optional[dict[str, str]]:
+    azure_openai_resource_name = request.headers.get("x-azure-project")
+
+    # check if Project name must be at least three characters long, and may only contain lowercase letters, numbers, and hyphens. cannot exceed 33 characters
+    if azure_openai_resource_name and not re.match(r"^[a-z0-9-]{3,33}$", azure_openai_resource_name):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Azure project name"
+        )
+
+    authorization = request.headers.get("authorization")
+
+    return_override = {}
+    if azure_openai_resource_name:
+        return_override["azure_openai_resource_name"] = azure_openai_resource_name
+    authorization_parts = authorization.strip().split() if authorization else []
+    if len(authorization_parts) == 2 and authorization_parts[0].casefold() == "bearer":
+        return_override["api_key"] = authorization_parts[1]
+    return return_override or None
+
+
 @app.post(
     "/v1/chat/completions",
     response_model=GuardrailsChatCompletion,
@@ -682,8 +750,9 @@ async def chat_completion(body: GuardrailsChatCompletionRequest, request: Reques
                 detail="No guardrails config_id provided and server has no default configuration",
             )
 
+    upstream_override = get_upstream_override(request)
     try:
-        llm_rails = await _get_rails(config_ids, model_name=body.model)
+        llm_rails = await _get_rails(config_ids, model_name=body.model, upstream_override=upstream_override)
 
     except ValueError as ex:
         log.exception(ex)
@@ -741,6 +810,8 @@ async def chat_completion(body: GuardrailsChatCompletionRequest, request: Reques
     # Set OpenAI-compatible parameters in llm_params
     if body.max_tokens:
         generation_options.llm_params["max_tokens"] = body.max_tokens
+    if body.max_completion_tokens is not None:
+        generation_options.llm_params["max_completion_tokens"] = body.max_completion_tokens
     if body.temperature is not None:
         generation_options.llm_params["temperature"] = body.temperature
     if body.top_p is not None:

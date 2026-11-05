@@ -42,6 +42,7 @@ REQUEST_MODEL = "meta/llama-3.1-70b-instruct"
 NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 RAIL_MODEL_URL = "http://rail.invalid/v1/chat/completions"
+AZURE_MODEL_URL = "https://azure-prod.openai.azure.com/openai/v1/chat/completions"
 
 ENGINE_ONLY_CONFIG = """
 models:
@@ -179,6 +180,89 @@ def test_request_model_keeps_the_configured_credential(main_model_request):
 def test_request_model_keeps_the_configured_default_headers(main_model_request):
     """Test the outbound call still carries the default headers from the configured parameters."""
     assert main_model_request.headers["X-Tenant-Id"] == "acme-corp"
+
+
+def test_chat_completion_uses_azure_resource_header_and_request_key(httpx_mock: HTTPXMock, serve_config, client):
+    """Use the Azure resource from the request header and forward the caller's bearer token."""
+    serve_config(
+        """
+models:
+  - type: main
+    engine: openai
+    model: azure-model
+    api_key_env_var: MODEL_INJECTION_TEST_KEY
+    parameters:
+      base_url: https://<PROJECT>.openai.azure.com/openai/v1
+      max_retries: 0
+"""
+    )
+    httpx_mock.add_response(url=AZURE_MODEL_URL, method="POST", json=_completion("hello"))
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={
+            "Authorization": "Bearer request-key",
+            "x-azure-project": "azure-prod",
+        },
+        json={
+            "model": REQUEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "guardrails": {"config_id": "test"},
+        },
+    )
+
+    assert response.status_code == 200
+    upstream_request = httpx_mock.get_request()
+    assert str(upstream_request.url) == AZURE_MODEL_URL
+    assert upstream_request.headers["Authorization"] == "Bearer request-key"
+    assert "azure_openai_resource_name" not in upstream_request.read().decode()
+
+
+def test_chat_completion_rejects_malformed_azure_resource_header(
+    httpx_mock: HTTPXMock, serve_config, client
+):
+    """Reject malformed Azure resource names before making a provider request."""
+    serve_config(
+        """
+models:
+  - type: main
+    engine: openai
+    model: azure-model
+    parameters:
+      base_url: https://<PROJECT>.openai.azure.com/openai/v1
+"""
+    )
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"x-azure-project": "invalid_resource"},
+        json={
+            "model": REQUEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "guardrails": {"config_id": "test"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert httpx_mock.get_requests() == []
+
+
+def test_request_authorization_override_keeps_non_azure_engine(httpx_mock: HTTPXMock, serve_config, client):
+    """A bearer-token override alone does not force the configured engine to OpenAI."""
+    serve_config(ENGINE_ONLY_CONFIG)
+    httpx_mock.add_response(url=NIM_URL, method="POST", json=_completion("hello"))
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": "Bearer request-key"},
+        json={
+            "model": REQUEST_MODEL,
+            "messages": [{"role": "user", "content": "hi"}],
+            "guardrails": {"config_id": "test"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert httpx_mock.get_request().headers["Authorization"] == "Bearer request-key"
 
 
 def test_main_and_rail_models_both_carry_the_configured_credential(httpx_mock: HTTPXMock, serve_config, client):
