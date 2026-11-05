@@ -262,6 +262,7 @@ app.single_config_id = None
 # Root path for the server
 app.root_path = ROOT_PATH
 
+
 @app.get(
     "/v1/rails/configs",
     summary="Get List of available rails configurations.",
@@ -310,7 +311,11 @@ async def health():
 async def list_models(request: Request):
     """Return the list of models available from the configured provider."""
 
-    engine = os.environ.get("MAIN_MODEL_ENGINE", "openai")
+    configured_model = _load_default_main_model()
+
+    engine = os.environ.get("MAIN_MODEL_ENGINE") or (configured_model.engine if configured_model else "openai")
+    config_base_url = configured_model.parameters.get("base_url") if configured_model else None
+    base_url = os.environ.get("MAIN_MODEL_BASE_URL") or config_base_url
 
     # Forward auth headers from the incoming request.
     request_headers: dict[str, str] = {}
@@ -320,7 +325,7 @@ async def list_models(request: Request):
 
     try:
         # Fetch the list of models from the configured provider
-        models = await fetch_models(engine, request_headers)
+        models = await fetch_models(engine, request_headers, base_url=base_url)
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except httpx.HTTPStatusError as exc:
@@ -386,6 +391,18 @@ def _configured_main_model(config: RailsConfig) -> Optional[Model]:
         if model.type == "main":
             return model
     return None
+
+
+def _load_default_main_model() -> Optional[Model]:
+    if app.single_config_mode:
+        config_path = app.rails_config_path
+    elif app.default_config_id:
+        config_path = os.path.join(app.rails_config_path, app.default_config_id)
+    else:
+        return None
+
+    config = RailsConfig.from_path(config_path)
+    return _configured_main_model(config)
 
 
 def _resolve_main_model_engine(configured_model: Optional[Model]) -> str:

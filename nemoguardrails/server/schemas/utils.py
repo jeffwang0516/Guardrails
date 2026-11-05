@@ -65,9 +65,9 @@ def _parse_timestamp(value: Any, default: int) -> int:
     return default
 
 
-def _openai_compatible_url() -> str:
-    """Build a ``/v1/models`` URL from ``MAIN_MODEL_BASE_URL``."""
-    base = os.environ.get("MAIN_MODEL_BASE_URL", "").rstrip("/")
+def _openai_compatible_url(base_url: Optional[str] = None) -> str:
+    """Build a ``/v1/models`` URL from ``base_url`` or ``MAIN_MODEL_BASE_URL``."""
+    base = (base_url or os.environ.get("MAIN_MODEL_BASE_URL", "")).rstrip("/")
     if not base:
         raise ValueError("MAIN_MODEL_BASE_URL is not set")
     return f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
@@ -111,13 +111,14 @@ PROVIDERS["azure_openai"] = PROVIDERS["azure"]
 async def fetch_models(
     engine: str,
     request_headers: Dict[str, str],
+    base_url: Optional[str] = None,
 ) -> List[OpenAIModel]:
     """Fetch the model list for the specified engine and return OpenAIModel objects."""
     # Look up the provider in the PROVIDERS table
     provider = PROVIDERS.get(engine)
 
     if provider is None:
-        if os.environ.get("MAIN_MODEL_BASE_URL"):
+        if base_url or os.environ.get("MAIN_MODEL_BASE_URL"):
             log.info(
                 "Engine '%s' not in provider table; trying OpenAI-compatible endpoint via MAIN_MODEL_BASE_URL",
                 engine,
@@ -134,7 +135,7 @@ async def fetch_models(
     if url_or_fn is not None:
         processed_url = str(url_or_fn() if callable(url_or_fn) else url_or_fn)
     else:
-        processed_url = _openai_compatible_url()
+        processed_url = _openai_compatible_url(base_url)
 
     # Build auth headers
     auth_header_name = provider.get("auth_header", "Authorization")
