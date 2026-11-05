@@ -316,14 +316,13 @@ async def list_models(request: Request):
 
     engine = os.environ.get("MAIN_MODEL_ENGINE") or (configured_model.engine if configured_model else "openai")
     config_base_url = configured_model.parameters.get("base_url") if configured_model else None
-    base_url = os.environ.get("MAIN_MODEL_BASE_URL") or config_base_url
+
     upstream_override = get_upstream_override(request)
     azure_resource_name = upstream_override.get("azure_openai_resource_name") if upstream_override else None
     if azure_resource_name:
-        try:
-            base_url = _azure_base_url_for_resource(base_url, engine, azure_resource_name)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        base_url = f"https://{azure_resource_name}.openai.azure.com/openai/v1"
+    else:
+        base_url = os.environ.get("MAIN_MODEL_BASE_URL") or config_base_url
 
     # Forward auth headers from the incoming request.
     request_headers: dict[str, str] = {}
